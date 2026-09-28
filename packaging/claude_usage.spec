@@ -8,7 +8,7 @@ ASSETS = Path(SPECPATH) / "build_assets"
 NAME = "ClaudeUsage"
 IS_MAC = sys.platform == "darwin"
 
-hidden = ["claude_usage.menubar_mac"] if IS_MAC else ["claude_usage.tray", "pystray._win32"]
+hidden = ["claude_usage.menubar_mac"] if IS_MAC else ["claude_usage.taskbar_win", "claude_usage.tray", "pystray._win32"]
 
 a = Analysis(
     [str(ROOT / "run_widget.pyw")],

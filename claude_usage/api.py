@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 
 
@@ -54,19 +55,21 @@ class Usage:
 
 # ---------------------------------------------------------------- credentials
 
-def _credentials_json() -> str:
-    """자격 증명 JSON 문자열을 찾는다.
+# 자격 증명 출처: "auto" | "local" | "wsl"
+#   local = 이 OS의 Claude Code 로그인, wsl = (Windows 전용) WSL 안의 Claude Code 로그인
+_source = "auto"
 
-    우선순위:
-      1. CLAUDE_CREDENTIALS_PATH 환경변수
-      2. macOS 키체인 ("Claude Code-credentials")
-      3. $CLAUDE_CONFIG_DIR/.credentials.json 또는 ~/.claude/.credentials.json
-      4. (Windows) WSL 안의 ~/.claude/.credentials.json — Claude Code를 WSL에서 쓰는 경우
-    """
-    override = os.environ.get("CLAUDE_CREDENTIALS_PATH")
-    if override:
-        return Path(override).expanduser().read_text(encoding="utf-8")
 
+def set_source(source: str) -> None:
+    global _source
+    _source = source if source in ("auto", "local", "wsl") else "auto"
+
+
+def get_source() -> str:
+    return _source
+
+
+def _read_local() -> str | None:
     if sys.platform == "darwin":
         try:
             out = subprocess.run(
@@ -82,25 +85,50 @@ def _credentials_json() -> str:
     path = config_dir / ".credentials.json"
     if path.exists():
         return path.read_text(encoding="utf-8")
+    return None
 
-    if sys.platform == "win32":
-        try:
-            out = subprocess.run(
-                ["wsl.exe", "-e", "sh", "-c", "cat ~/.claude/.credentials.json"],
-                capture_output=True, timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.decode("utf-8")
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+
+def _read_wsl() -> str | None:
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(
+            ["wsl.exe", "-e", "sh", "-c", "cat ~/.claude/.credentials.json"],
+            capture_output=True, timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.decode("utf-8")
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _credentials_json(source: str | None = None) -> str:
+    """자격 증명 JSON 문자열을 찾는다.
+
+    CLAUDE_CREDENTIALS_PATH 환경변수가 있으면 항상 그것을 쓴다. 그 외에는 출처에 따라:
+      local: macOS 키체인 / $CLAUDE_CONFIG_DIR 또는 ~/.claude/.credentials.json
+      wsl:   (Windows) WSL 안의 ~/.claude/.credentials.json
+      auto:  local → wsl 순서로 먼저 찾은 것
+    """
+    override = os.environ.get("CLAUDE_CREDENTIALS_PATH")
+    if override:
+        return Path(override).expanduser().read_text(encoding="utf-8")
+
+    source = source or _source
+    readers = {"local": [_read_local], "wsl": [_read_wsl]}.get(source, [_read_local, _read_wsl])
+    for read in readers:
+        data = read()
+        if data:
+            return data
 
     raise UsageError("Claude Code 로그인 정보를 찾을 수 없습니다")
 
 
-def load_token() -> str:
+def load_token(source: str | None = None) -> str:
     try:
-        data = json.loads(_credentials_json())
+        data = json.loads(_credentials_json(source))
         return data["claudeAiOauth"]["accessToken"]
     except (ValueError, KeyError, TypeError) as e:
         raise UsageError("자격 증명 형식을 읽을 수 없습니다") from e
@@ -118,16 +146,27 @@ def _parse_window(raw) -> Window | None:
     )
 
 
+def _headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": "oauth-2025-04-20",
+        "Content-Type": "application/json",
+        "User-Agent": "claude-usage-widget/1.0",
+    }
+
+
+def fetch_email(source: str) -> str | None:
+    """해당 출처로 로그인된 계정 이메일 (메뉴 표시용). 실패하면 None."""
+    try:
+        req = urllib.request.Request(PROFILE_URL, headers=_headers(load_token(source)))
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.load(resp).get("account", {}).get("email")
+    except Exception:
+        return None
+
+
 def fetch_usage(timeout: float = 15) -> Usage:
-    req = urllib.request.Request(
-        USAGE_URL,
-        headers={
-            "Authorization": f"Bearer {load_token()}",
-            "anthropic-beta": "oauth-2025-04-20",
-            "Content-Type": "application/json",
-            "User-Agent": "claude-usage-widget/1.0",
-        },
-    )
+    req = urllib.request.Request(USAGE_URL, headers=_headers(load_token()))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.load(resp)

@@ -4,11 +4,18 @@ Claude 구독 사용량(**5시간 한도**, **주간 한도**)을 퍼센트로 �
 
 | OS | 표시 위치 | 모양 |
 |---|---|---|
-| Windows | 작업표시줄 오른쪽 트레이 | 아이콘 2개: ● 원 = 5시간, ■ 사각형 = 주간 (숫자 = %) |
+| Windows | 작업표시줄 (시계 왼쪽 빈 공간) | `5시간 ▓▓░░ 25%` / `주간 ▓░░░ 4%` 두 줄 + 게이지 |
 | macOS | 상단 메뉴바 | `5h 19% · 7d 3%` |
 
-색상: 50% 미만 초록 / 50~79% 주황 / 80% 이상 빨강 / 오류 회색(`!`).
-Windows에서는 아이콘에 마우스를 올리면 리셋 시각이, 우클릭하면 새로고침/종료 메뉴가 나옵니다.
+게이지 색상: 50% 미만 초록 / 50~79% 주황 / 80% 이상 빨강. 오류가 나면 `!`로 표시됩니다.
+
+**Windows 작업표시줄 위젯**
+- Windows 11은 작업표시줄에 직접 붙는 위젯(deskband)을 막아 두었기 때문에, 작업표시줄 위에 투명 창을 겹쳐 띄웁니다.
+- **좌클릭 드래그**: 가로 위치 이동 (저장됨)
+- **우클릭**: 리셋 시각 보기, 계정 선택, 새로고침, 위치 초기화, Windows 시작 시 자동 실행, 종료
+- 전체 화면 앱(게임·영상·발표) 실행 중이거나 작업표시줄이 자동 숨김 상태이면 같이 숨습니다.
+- 다크/라이트 테마를 자동으로 따라갑니다.
+- 기존 트레이 아이콘 방식을 원하면 `--tray` 옵션으로 실행하세요.
 
 ## 동작 방식
 
@@ -17,7 +24,9 @@ Claude Code의 `/usage`와 같은 엔드포인트(`https://api.anthropic.com/api
 
 - macOS: 키체인 `Claude Code-credentials`
 - Windows/Linux: `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR` 존중)
-- Windows에서 위 파일이 없으면 WSL 안의 `~/.claude/.credentials.json`을 `wsl.exe`로 읽음
+- Windows에서는 WSL 안의 `~/.claude/.credentials.json`도 `wsl.exe`로 읽을 수 있음.
+  Windows와 WSL에 서로 다른 계정으로 로그인했다면 **우클릭 → 계정**에서 고르세요
+  (각 계정 이메일이 함께 표시됨). 기본값 "자동"은 Windows 로그인을 우선합니다.
 - `CLAUDE_CREDENTIALS_PATH` 환경변수로 경로를 직접 지정할 수도 있음
 
 토큰이 만료되면 위젯에 "토큰 만료"가 표시됩니다. Claude Code를 한 번 실행하면 갱신됩니다.
@@ -36,9 +45,8 @@ python -m claude_usage --once       # 위젯 없이 한 번만 출력
 ### Windows
 
 - 콘솔 창 없이 실행: `run_widget.pyw` 더블클릭 (또는 `pythonw run_widget.pyw`)
-- **아이콘이 `^` 숨김 영역에 들어가면** 작업표시줄로 끌어다 놓거나,
-  설정 → 개인 설정 → 작업 표시줄 → 기타 시스템 트레이 아이콘에서 `python`/`pythonw`를 켜세요.
-- 로그인 시 자동 실행: `Win+R` → `shell:startup` → `run_widget.pyw` 바로가기 추가
+- 로그인 시 자동 실행: 위젯 우클릭 → "Windows 시작 시 자동 실행"
+- 설정 파일: `%APPDATA%\ClaudeUsage\config.json` (위치, 계정 선택)
 
 ### macOS
 
@@ -68,7 +76,7 @@ xattr -dr com.apple.quarantine /Applications/ClaudeUsage.app
 CI 빌드는 Apple Silicon(arm64)용입니다. Intel Mac에서는 해당 Mac에서 `build_macos.sh`로 직접 빌드하세요.
 
 **Windows 첫 실행:** 서명되지 않은 exe라 SmartScreen 경고가 뜰 수 있습니다. "추가 정보 → 실행"을 누르세요.
-부팅 시 자동 실행하려면 `shell:startup` 폴더에 `ClaudeUsage.exe` 바로가기를 넣으면 됩니다.
+부팅 시 자동 실행은 위젯 우클릭 메뉴에서 켜면 됩니다.
 
 ## 구조
 
@@ -77,7 +85,8 @@ claude_usage/
   api.py          자격 증명 로드 + 사용량 API 호출/파싱
   poller.py       백그라운드 주기 조회
   icons.py        트레이 아이콘 이미지(Pillow)
-  tray.py         Windows/Linux 트레이 (pystray)
+  taskbar_win.py  Windows 작업표시줄 위젯 (Win32 레이어드 창)
+  tray.py         트레이 아이콘 방식 (Windows `--tray`, Linux)
   menubar_mac.py  macOS 메뉴바 (rumps)
   __main__.py     OS별 진입점
 run_widget.pyw    Windows 콘솔 없는 실행기 (PyInstaller 진입점)
