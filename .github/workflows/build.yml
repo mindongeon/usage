@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: .\build_windows.bat
+        shell: cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeUsage-windows
+          path: dist/ClaudeUsage.exe
+
+  macos:
+    runs-on: macos-latest  # Apple Silicon(arm64) 빌드
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: ./build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeUsage-macos
+          path: dist/ClaudeUsage.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/ClaudeUsage.exe
+            out/ClaudeUsage.dmg
